@@ -1,0 +1,21 @@
+{
+  "name": "dental-core",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aliyasoubi/dental-core.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aliyasoubi/dental-core/issues"
+  },
+  "homepage": "https://github.com/aliyasoubi/dental-core#readme"
+}
