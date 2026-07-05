@@ -3,37 +3,32 @@
 This document provides a detailed specification for the DentalCore backend API, including general conventions, user
 roles, endpoint definitions, and the database schema.
 
+Sections are marked **✅ Implemented** (describes current behavior) or **🚧 Planned** (target design, not yet built)
+so this file stays useful as a running spec instead of drifting from the code.
+
 ## General Conventions
 
-- **Base URL**: All API endpoints are prefixed with `/api/v1`.
-- **Authentication**: All protected endpoints require a `Bearer <token>` in the `Authorization` header.
-- **Localization**: The API supports English (`en`) and Farsi (`fa`). To receive localized responses for error messages
-  and certain data fields, provide the `Accept-Language` header (e.g., `Accept-Language: fa`). The default is `en`.
-- **Data Format**: All requests and responses use the `application/json` format.
+- **Base URL**: All API endpoints are prefixed with `/api` (e.g. `http://localhost:3000/api/auth/login`).
+- **Authentication**: Protected endpoints require a `Bearer <token>` in the `Authorization` header.
+- **Localization** (🚧 Planned): The API will eventually support English (`en`) and Farsi (`fa`) via an
+  `Accept-Language` header. Not implemented yet — all current responses are English only, and the header is
+  currently ignored.
+- **Data Format**: All requests and responses use `application/json`.
 
 ## Standard API Response Structure
 
-#### Success Response
+#### Success Response (🚧 Planned pagination shape)
 
-Successful `GET`, `POST`, and `PATCH` requests will return a `2xx` status code with a JSON body. List endpoints include
-pagination metadata.
+The `data` / `meta` pagination envelope below is the target shape for list endpoints. It is **not implemented yet** —
+the only list endpoint currently live, `GET /users`, returns a plain JSON array with no pagination metadata. Apply
+this envelope when pagination is added to `/users` and to future list endpoints (`/categories`, `/items`, etc.).
 
 ```json
-// Example: GET /items?page=1&limit=2
+// Target shape: GET /items?page=1&limit=2
 {
   "data": [
-    {
-      "id": "...",
-      "name": {
-        "en": "Item A"
-      }
-    },
-    {
-      "id": "...",
-      "name": {
-        "en": "Item B"
-      }
-    }
+    { "id": "...", "name": { "en": "Item A" } },
+    { "id": "...", "name": { "en": "Item B" } }
   ],
   "meta": {
     "totalItems": 15,
@@ -45,134 +40,191 @@ pagination metadata.
 }
 ```
 
-#### Error Response
+#### Error Response (✅ Implemented, current shape — 🚧 target shape differs)
 
-Failed requests (`4xx`, `5xx`) will return a standardized error object. The `message` field is localized based on the
-`Accept-Language` header.
+**Currently implemented:** no custom exception filter exists yet, so errors use Nest's default `HttpException`
+format. `message` is a plain string for most thrown exceptions (e.g. `UnauthorizedException('Invalid credentials')`),
+or an array of strings for `ValidationPipe` failures. There is no separate `errors` field.
 
 ```json
-// Example: 400 Bad Request
+// Current: 401 from AuthService
+{
+  "statusCode": 401,
+  "message": "Invalid credentials",
+  "error": "Unauthorized"
+}
+```
+
+```json
+// Current: 400 from ValidationPipe (message is an array, not a separate "errors" field)
+{
+  "statusCode": 400,
+  "message": ["email must be an email"],
+  "error": "Bad Request"
+}
+```
+
+**Target shape (🚧 Planned):** once the global exception filter is built, responses should normalize to a single
+localized `message` string plus a separate `errors` array for field-level validation detail:
+
+```json
+// Target: 400 Bad Request
 {
   "statusCode": 400,
   "message": "Validation failed",
-  // This message will be in English or Farsi
-  "errors": [
-    "email must be an email"
-  ],
+  "errors": ["email must be an email"],
   "error": "Bad Request"
 }
 ```
 
 ## User Roles
 
-| Role        | Description                                                                              |
-|-------------|------------------------------------------------------------------------------------------|
-| `ADMIN`     | Full access to all endpoints, including cost data, user management, and system settings. |
-| `DENTIST`   | Access to inventory and clinical workflows. Cost data is hidden. Can acknowledge alerts. |
-| `ASSISTANT` | Basic access to inventory consumption and alerts. Cost data is hidden.                   |
+| Role          | Description                                                                                    | Status |
+|---------------|--------------------------------------------------------------------------------------------------|--------|
+| `ADMIN`       | Full access to all endpoints, including user management and system settings.                     | ✅ Enforced today (all `/users` mutation routes) |
+| `DENTIST`     | Intended: access to inventory and clinical workflows, can acknowledge alerts, cost data hidden.   | Only currently enforced on `GET /users/:id` (Admin + Dentist); inventory/alerts permissions are 🚧 Planned |
+| `RECEPTIONIST`| Default role for new staff accounts. Intended scope (scheduling, front-desk tasks) not yet defined. | Entity default; no endpoints scoped to it yet — 🚧 Planned |
+| `ASSISTANT`   | Intended: basic access to inventory consumption and alerts, cost data hidden.                     | 🚧 Planned — no endpoints exist yet |
 
-## Authentication
+All four roles exist today in `UserRole` (`src/users/entities/user.entity.ts`). Only `ADMIN` and `DENTIST` are
+currently referenced by a `@Roles()` guard anywhere in the code (on the `users` module). Permissions for
+`RECEPTIONIST` and `ASSISTANT` will be defined as the relevant modules (inventory, alerts, etc.) are built.
 
-| Method | Endpoint        | Role          | Description                                                      |
-|--------|-----------------|---------------|------------------------------------------------------------------|
-| `POST` | `/auth/login`   | Public        | Authenticates a user and returns a JWT access and refresh token. |
-| `POST` | `/auth/refresh` | Authenticated | Uses a valid refresh token to issue a new access token.          |
+## Authentication (✅ Implemented)
+
+| Method | Endpoint             | Role          | Description                                                       |
+|--------|-----------------------|---------------|---------------------------------------------------------------------|
+| `POST` | `/auth/login`         | Public        | Authenticates a user, returns `{ accessToken, refreshToken, user }`. |
+| `POST` | `/auth/refresh`       | Public*       | Exchanges a valid, non-revoked, non-expired refresh token for a new access token. |
+| `POST` | `/auth/logout`        | Authenticated | Revokes the one refresh token supplied in the request body.          |
+| `POST` | `/auth/logout-all`    | Authenticated | Revokes every refresh token belonging to the current user.           |
+
+\* `/auth/refresh` has no `JwtAuthGuard` — it's gated purely by possession of a valid, unexpired, unrevoked refresh
+token in the request body, not by a Bearer access token.
+
+There is deliberately **no public self-registration endpoint**. The only account-creation path is
+`POST /users`, which requires an authenticated Admin. The first Admin account is created out-of-band via a seed
+script (`npm run seed:admin`) — see the Auth setup guide.
 
 ## API Endpoints
 
-### Users
+### Users (✅ Implemented)
 
-| Method   | Endpoint     | Role  | Description              |
-|----------|--------------|-------|--------------------------|
-| `GET`    | `/users`     | Admin | List all system users.   |
-| `POST`   | `/users`     | Admin | Create a new user.       |
-| `PATCH`  | `/users/:id` | Admin | Update an existing user. |
-| `DELETE` | `/users/:id` | Admin | Soft-delete a user.      |
+| Method   | Endpoint     | Role              | Description                                                    |
+|----------|--------------|-------------------|-------------------------------------------------------------------|
+| `GET`    | `/users`     | Admin             | List all system users. Returns a plain array — no pagination yet. |
+| `POST`   | `/users`     | Admin             | Create a new user. Role is chosen by the Admin in the request body. |
+| `GET`    | `/users/:id` | Admin, Dentist    | Get a single user by ID.                                            |
+| `PATCH`  | `/users/:id` | Admin             | Update an existing user (including changing role or `isActive`).    |
+| `DELETE` | `/users/:id` | Admin             | **Permanently deletes** the user row. There is no soft-delete flag on `User` yet — unlike the other resources below, which are designed with `is_deleted` from the start. |
 
-### Categories
+### Categories (🚧 Planned — not implemented)
 
 | Method   | Endpoint          | Role  | Description                  |
-|----------|-------------------|-------|------------------------------|
-| `GET`    | `/categories`     | All   | List inventory categories.   |
-| `POST`   | `/categories`     | Admin | Create a new category.       |
-| `PATCH`  | `/categories/:id` | Admin | Update an existing category. |
-| `DELETE` | `/categories/:id` | Admin | Soft-delete a category.      |
+|----------|-------------------|-------|-------------------------------|
+| `GET`    | `/categories`     | All   | List inventory categories.    |
+| `POST`   | `/categories`     | Admin | Create a new category.         |
+| `PATCH`  | `/categories/:id` | Admin | Update an existing category.   |
+| `DELETE` | `/categories/:id` | Admin | Soft-delete a category.        |
 
-### Suppliers
+### Suppliers (🚧 Planned — not implemented)
 
-| Method   | Endpoint         | Role  | Description                  |
-|----------|------------------|-------|------------------------------|
-| `GET`    | `/suppliers`     | All   | List all suppliers.          |
-| `POST`   | `/suppliers`     | Admin | Create a new supplier.       |
-| `GET`    | `/suppliers/:id` | All   | Get a single supplier by ID. |
-| `PATCH`  | `/suppliers/:id` | Admin | Update an existing supplier. |
-| `DELETE` | `/suppliers/:id` | Admin | Soft-delete a supplier.      |
+| Method   | Endpoint         | Role  | Description                   |
+|----------|------------------|-------|---------------------------------|
+| `GET`    | `/suppliers`     | All   | List all suppliers.              |
+| `POST`   | `/suppliers`     | Admin | Create a new supplier.            |
+| `GET`    | `/suppliers/:id` | All   | Get a single supplier by ID.       |
+| `PATCH`  | `/suppliers/:id` | Admin | Update an existing supplier.        |
+| `DELETE` | `/suppliers/:id` | Admin | Soft-delete a supplier.               |
 
-### Inventory Items
+### Inventory Items (🚧 Planned — not implemented)
 
-| Method   | Endpoint     | Role  | Description                                          |
-|----------|--------------|-------|------------------------------------------------------|
-| `GET`    | `/items`     | All   | List inventory items with filtering and pagination.  |
-| `POST`   | `/items`     | Admin | Create a new item.                                   |
-| `GET`    | `/items/:id` | All   | Get a single item, including its associated batches. |
-| `PATCH`  | `/items/:id` | Admin | Update an existing item.                             |
-| `DELETE` | `/items/:id` | Admin | Soft-delete an item.                                 |
+| Method   | Endpoint     | Role  | Description                                            |
+|----------|--------------|-------|-----------------------------------------------------------|
+| `GET`    | `/items`     | All   | List inventory items with filtering and pagination.          |
+| `POST`   | `/items`     | Admin | Create a new item.                                             |
+| `GET`    | `/items/:id` | All   | Get a single item, including its associated batches.             |
+| `PATCH`  | `/items/:id` | Admin | Update an existing item.                                           |
+| `DELETE` | `/items/:id` | Admin | Soft-delete an item.                                                |
 
-### Batches
+### Batches (🚧 Planned — not implemented)
 
-| Method | Endpoint                 | Role | Description                                     |
-|--------|--------------------------|------|-------------------------------------------------|
-| `GET`  | `/items/:itemId/batches` | All  | List all batches for a specific inventory item. |
-| `GET`  | `/batches/:id`           | All  | Get the details of a single batch by its ID.    |
+| Method | Endpoint                 | Role | Description                                       |
+|--------|---------------------------|------|------------------------------------------------------|
+| `GET`  | `/items/:itemId/batches` | All  | List all batches for a specific inventory item.        |
+| `GET`  | `/batches/:id`           | All  | Get the details of a single batch by its ID.             |
 
-### Stock Operations
+### Stock Operations (🚧 Planned — not implemented)
 
 | Method | Endpoint              | Role           | Description                                       |
-|--------|-----------------------|----------------|---------------------------------------------------|
-| `POST` | `/stock/receive`      | Admin, Dentist | Receive new stock, creating or updating a batch.  |
-| `POST` | `/stock/consume`      | All            | Consume a specified quantity from a batch.        |
-| `POST` | `/stock/adjust`       | Admin          | Perform a manual stock count adjustment.          |
-| `POST` | `/stock/return`       | Admin          | Return stock from a batch to a supplier.          |
-| `GET`  | `/stock/transactions` | Admin, Dentist | View the complete history of all stock movements. |
+|--------|------------------------|----------------|------------------------------------------------------|
+| `POST` | `/stock/receive`      | Admin, Dentist | Receive new stock, creating or updating a batch.         |
+| `POST` | `/stock/consume`      | All            | Consume a specified quantity from a batch.                |
+| `POST` | `/stock/adjust`       | Admin          | Perform a manual stock count adjustment.                    |
+| `POST` | `/stock/return`       | Admin          | Return stock from a batch to a supplier.                      |
+| `GET`  | `/stock/transactions` | Admin, Dentist | View the complete history of all stock movements.               |
 
-### Alerts
+### Alerts (🚧 Planned — not implemented)
 
 | Method  | Endpoint                  | Role           | Description                                        |
-|---------|---------------------------|----------------|----------------------------------------------------|
-| `GET`   | `/alerts`                 | All            | List all currently active (unacknowledged) alerts. |
-| `GET`   | `/alerts/low-stock`       | All            | Filter for low stock alerts only.                  |
-| `GET`   | `/alerts/expiring`        | All            | Filter for expiring and expired item alerts.       |
-| `PATCH` | `/alerts/:id/acknowledge` | Admin, Dentist | Mark a specific alert as acknowledged.             |
+|---------|----------------------------|----------------|-------------------------------------------------------|
+| `GET`   | `/alerts`                 | All            | List all currently active (unacknowledged) alerts.        |
+| `GET`   | `/alerts/low-stock`       | All            | Filter for low stock alerts only.                            |
+| `GET`   | `/alerts/expiring`        | All            | Filter for expiring and expired item alerts.                    |
+| `PATCH` | `/alerts/:id/acknowledge` | Admin, Dentist | Mark a specific alert as acknowledged.                             |
 
-## Query Parameters for List Endpoints
+## Query Parameters for List Endpoints (🚧 Planned — not implemented)
 
-List endpoints (`GET /users`, `GET /items`, etc.) support the following query parameters for filtering, sorting, and
-pagination.
+None of the query parameters below are wired up yet, including on the one live list endpoint (`GET /users`, which
+currently ignores query params entirely and returns everything). Apply this table once pagination/filtering is
+added.
 
 | Parameter    | Type          | Description                                           | Example                 |
-|--------------|---------------|-------------------------------------------------------|-------------------------|
-| `page`       | number        | The page number to retrieve (default: 1).             | `?page=2`               |
-| `limit`      | number        | The number of items per page (default: 20, max: 100). | `?limit=50`             |
-| `search`     | string        | Performs a text-based search on relevant fields.      | `?search=resin`         |
-| `categoryId` | uuid          | Filter items by category ID.                          | `?categoryId=...`       |
-| `supplierId` | uuid          | Filter items by supplier ID.                          | `?supplierId=...`       |
-| `startDate`  | ISO date      | The start of a date range for filtering transactions. | `?startDate=2026-05-01` |
-| `endDate`    | ISO date      | The end of a date range for filtering transactions.   | `?endDate=2026-05-11`   |
-| `sortBy`     | string        | The field to sort by (e.g., `createdAt`, `name`).     | `?sortBy=name`          |
-| `sortOrder`  | `asc`\|`desc` | The direction of the sort (default: `desc`).          | `?sortOrder=asc`        |
+|--------------|---------------|--------------------------------------------------------|--------------------------|
+| `page`       | number        | The page number to retrieve (default: 1).                | `?page=2`                 |
+| `limit`      | number        | The number of items per page (default: 20, max: 100).      | `?limit=50`                 |
+| `search`     | string        | Performs a text-based search on relevant fields.              | `?search=resin`               |
+| `categoryId` | uuid          | Filter items by category ID.                                    | `?categoryId=...`               |
+| `supplierId` | uuid          | Filter items by supplier ID.                                       | `?supplierId=...`                 |
+| `startDate`  | ISO date      | The start of a date range for filtering transactions.                | `?startDate=2026-05-01`             |
+| `endDate`    | ISO date      | The end of a date range for filtering transactions.                     | `?endDate=2026-05-11`                 |
+| `sortBy`     | string        | The field to sort by (e.g., `createdAt`, `name`).                          | `?sortBy=name`                          |
+| `sortOrder`  | `asc`\|`desc` | The direction of the sort (default: `desc`).                                  | `?sortOrder=asc`                          |
 
 ## Database Schema
 
-Below is a simplified representation of the core database tables.
-
-`users`
+### `users` (✅ Implemented — matches `src/users/entities/user.entity.ts`)
 
 - `id` UUID PK
+- `firstName` VARCHAR(100)
+- `lastName` VARCHAR(100)
 - `email` VARCHAR(255) UNIQUE
-- `password_hash` VARCHAR(255)
-- `full_name` VARCHAR(255)
-- `role` ENUM(ADMIN, DENTIST, ASSISTANT)
-- `is_active` BOOLEAN
+- `mobileNumber` VARCHAR(20) UNIQUE
+- `password` VARCHAR(255) — bcrypt hash, `select: false` by default (must opt in via query builder)
+- `role` ENUM(ADMIN, DENTIST, RECEPTIONIST, ASSISTANT) — default `RECEPTIONIST`
+- `isActive` BOOLEAN — default `true`
+- `isEmailVerified` BOOLEAN — default `false`
+- `isMobileVerified` BOOLEAN — default `false`
+- `nationalId` VARCHAR(50) NULLABLE
+- `licenseNumber` VARCHAR(100) NULLABLE
+- `lastLoginAt` TIMESTAMP NULLABLE
+- `createdAt` TIMESTAMP
+- `updatedAt` TIMESTAMP
+
+No `is_deleted` column — `DELETE /users/:id` is a hard delete today.
+
+### `refresh_tokens` (✅ Implemented — matches `src/auth/entities/refresh-token.entity.ts`)
+
+- `id` UUID PK
+- `token` VARCHAR(500) — SHA-256 hash of the refresh token, never the raw JWT
+- `userId` UUID FK(users.id), `onDelete: CASCADE`
+- `deviceInfo` VARCHAR(255) NULLABLE — from the `User-Agent` header at login
+- `ipAddress` VARCHAR(45) NULLABLE
+- `expiresAt` TIMESTAMP
+- `isRevoked` BOOLEAN — default `false`
+- `createdAt` TIMESTAMP
+
+### The following tables are target schema only (🚧 Planned — no entities exist yet)
 
 `categories`
 
@@ -242,191 +294,4 @@ Below is a simplified representation of the core database tables.
 - `entity_id` UUID NULLABLE
 - `old_values` JSONB NULLABLE
 - `new_values` JSONB NULLABLE
-- `ip_address` VARCHAR(45) """,""" # DentalCore — Dental Clinic Inventory Management
-
-This repository contains the backend API for the DentalCore inventory and procurement management system. The API is
-built with a modern, scalable, and type-safe tech stack designed for reliability and ease of development.
-
-## Tech Stack
-
-| Component | Technology                   |
-|-----------|------------------------------|
-| Runtime   | Node.js 20 LTS               |
-| Language  | TypeScript 5.x               |
-| Framework | NestJS 10                    |
-| Database  | PostgreSQL 16                |
-| ORM       | Prisma 5                     |
-| Auth      | Passport + JWT               |
-| i18n      | nestjs-i18n (English, Farsi) |
-| API Docs  | Swagger (@nestjs/swagger)    |
-| Testing   | Vitest + Supertest           |
-| Container | Docker + Docker Compose      |
-
-## Documentation
-
-For detailed information on API endpoints, request/response models, and the database schema, please see
-the [API Design & Documentation](API_DESIGN.md) file.
-
-## Getting Started
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Node.js `v20.x` or later
-- `npm` or a compatible package manager
-
-### 1. Initial Setup
-
-Clone the repository and configure your local environment.
-
-```bash
-# Clone the project
-git clone <your-repo-url>
-cd dentalcore-backend
-```
-
-# Create the environment file from the example
-
-cp .env.example .env
-Now, open the `.env` file and update the `DATABASE_URL` and `JWT_SECRET` with your own credentials.
-
-### 2. Launch Services
-
-Start the PostgreSQL database and the application using Docker Compose.
-
-```bash
-docker compose up -d
-```
-
-### 3. Prepare the Database
-
-With the services running, install dependencies and apply database migrations and seed data.
-
-```bash
-
-# Install dependencies
-
-npm install
-
-# Apply database schema changes
-
-npx prisma migrate dev
-
-# Seed the database with initial data (e.g., admin user)
-
-npx prisma db seed
-```
-
-### 4. Run the Application
-
-Start the NestJS development server.
-
-```bash
-npm run start:dev
-The application is now running and accessible:
-
-- **API Base URL:** `http://localhost:3000/api/v1`
-- **Swagger Docs:** `http://localhost:3000/api/docs`
-```
-
-## API Documentation
-
-For a complete specification of all API endpoints, request/response models, user roles, and the database schema, please
-see the **[API Design & Documentation](API_DESIGN.md)** file.
-
-## Environment Variables
-
-| Variable                 | Description                                       |
-|--------------------------|---------------------------------------------------|
-| `DATABASE_URL`           | Connection string for the PostgreSQL database.    |
-| `JWT_SECRET`             | A long, random, secret string for signing JWTs.   |
-| `JWT_EXPIRES_IN`         | Expiration time for access tokens (e.g., `1h`).   |
-| `JWT_REFRESH_EXPIRES_IN` | Expiration time for refresh tokens (e.g., `7d`).  |
-| `DEFAULT_LOCALE`         | The default language for i18n (`en`).             |
-| `FALLBACK_LOCALE`        | The fallback language if a key is missing (`en`). |
-
-## Project Structure
-
-The project is organized as a monorepo with a modular, feature-driven backend architecture.
-
-### 1. Monorepo Overview
-
-The top-level directory separates the backend and frontend applications.
-
-```text
-/dentalcore/
-├── backend/       <-- NestJS API (detailed below)
-├── frontend/      <-- Client application (React, Vue, etc.)
-├── .git/
-└── .gitignore
-```
-
-### 2. Backend Directory (`/backend`)
-
-This is the high-level layout of the backend service, containing configuration, database assets, tests, and source code.
-
-```text
-/backend/
-├── .env                  # Local environment variables (ignored by git)
-├── .env.example          # Template for environment variables
-├── .eslintrc.js          # ESLint configuration
-├── .prettierrc           # Prettier code formatting rules
-├── docker-compose.yml    # Defines services (app, db) for local development
-├── Dockerfile            # Instructions to build the production application image
-├── nest-cli.json         # NestJS CLI configuration
-├── package.json          # Project dependencies and scripts
-├── prisma/               # All Prisma-related files
-│   ├── migrations/       # Auto-generated SQL migration files
-│   ├── schema.prisma     # The single source of truth for your database schema
-│   └── seed.ts           # Script for seeding the database with initial data
-├── src/                  # Application source code (detailed below)
-├── test/                 # Test files
-└── tsconfig.json         # TypeScript compiler configuration
-```
-
-### 3. Source Code (`/src`)
-
-The `src` directory contains the application's core logic, organized into modules by feature.
-
-```text
-/src/
-├── main.ts             # Application entry point
-├── app.module.ts       # Root application module
-├── common/             # Shared utilities (guards, decorators, filters)
-├── i18n/               # Language translation files (en, fa)
-├── auth/               # Authentication module (login, refresh)
-├── users/              # User management module
-├── categories/         # Inventory category module
-├── suppliers/          # Supplier management module
-├── inventory/          # Core inventory logic, composed of sub-modules
-│   ├── items/
-│   ├── batches/
-│   └── stock/
-├── alerts/             # Alerting and notification module
-└── audit/              # Audit logging module
-```
-
-## Available Scripts
-
-| Script                   | Description                                       |
-|--------------------------|---------------------------------------------------|
-| `npm run start:dev`      | Starts the development server with hot-reloading. |
-| `npm run build`          | Compiles the TypeScript source to JavaScript.     |
-| `npm run start:prod`     | Runs the production build of the application.     |
-| `npm run test`           | Executes unit and integration tests with Vitest.  |
-| `npm run lint`           | Lints the codebase using ESLint.                  |
-| `npx prisma migrate dev` | Creates and applies a new database migration.     |
-| `npx prisma studio`      | Opens a web-based GUI for viewing the database.   |
-
-## Contributing
-
-Contributions are welcome. Please follow these general steps:
-
-1. Create a feature branch from `main` (e.g., `git checkout -b feature/add-new-widget`).
-2. Make your changes and commit them with clear, descriptive messages.
-3. Ensure all tests pass (`npm run test`).
-4. Open a Pull Request for review.
-
-## License
-
-Proprietary
+- `ip_address` VARCHAR(45)
