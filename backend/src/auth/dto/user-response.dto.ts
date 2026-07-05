@@ -3,21 +3,21 @@ import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
 export class UserResponseDto {
-    @ApiProperty()
-    id: string;
+  @ApiProperty()
+  id: string;
 
-    @ApiProperty()
-    firstName: string;
+  @ApiProperty()
+  firstName: string;
 
-    @ApiProperty()
-    lastName: string;
+  @ApiProperty()
+  lastName: string;
 
-    @ApiProperty()
-    email: string;
+  @ApiProperty()
+  email: string;
 
-    @ApiProperty()
-    mobileNumber: string;
+  @ApiProperty()
+  mobileNumber: string;
 
-    @ApiProperty({ enum: UserRole })
-    role: UserRole;
+  @ApiProperty({ enum: UserRole })
+  role: UserRole;
 }
