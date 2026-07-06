@@ -4,7 +4,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TestingModule, Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { CategoriesService } from './categories.service';
-import { Category } from './entites/category.entity';
+import { Category } from './entities/category.entity';
+
 
 describe('CategoriesService', () => {
   let service: CategoriesService;

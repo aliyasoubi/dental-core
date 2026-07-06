@@ -118,7 +118,7 @@ script (`npm run seed:admin`) — see the Auth setup guide.
 | `PATCH`  | `/users/:id` | Admin             | Update an existing user (including changing role or `isActive`).    |
 | `DELETE` | `/users/:id` | Admin             | **Permanently deletes** the user row. There is no soft-delete flag on `User` yet — unlike the other resources below, which are designed with `is_deleted` from the start. |
 
-### Categories (🚧 Planned — not implemented)
+### Categories (✅ Implemented)
 
 | Method   | Endpoint          | Role  | Description                  |
 |----------|-------------------|-------|-------------------------------|
@@ -127,7 +127,7 @@ script (`npm run seed:admin`) — see the Auth setup guide.
 | `PATCH`  | `/categories/:id` | Admin | Update an existing category.   |
 | `DELETE` | `/categories/:id` | Admin | Soft-delete a category.        |
 
-### Suppliers (🚧 Planned — not implemented)
+### Suppliers (✅ Implemented)
 
 | Method   | Endpoint         | Role  | Description                   |
 |----------|------------------|-------|---------------------------------|
@@ -137,7 +137,7 @@ script (`npm run seed:admin`) — see the Auth setup guide.
 | `PATCH`  | `/suppliers/:id` | Admin | Update an existing supplier.        |
 | `DELETE` | `/suppliers/:id` | Admin | Soft-delete a supplier.               |
 
-### Inventory Items (🚧 Planned — not implemented)
+### Inventory Items (✅ Implemented)
 
 | Method   | Endpoint     | Role  | Description                                            |
 |----------|--------------|-------|-----------------------------------------------------------|

@@ -2,7 +2,7 @@
 import { IsOptional, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { LocalizedTextDto } from './localized-text.dto';
+import { LocalizedTextDto } from 'src/categories/dto/localized-text.dto';
 
 export class CreateCategoryDto {
   @ApiProperty({ example: { en: 'Composite Resins', fa: 'کامپوزیت‌ها' } })

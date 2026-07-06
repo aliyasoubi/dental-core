@@ -6,6 +6,8 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import databaseConfig from './config/database.config';
 import { CategoriesModule } from './categories/categories.module';
+import { ItemsModule } from './inventory/items/items.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { CategoriesModule } from './categories/categories.module';
     AuthModule,
     UsersModule,
     CategoriesModule,
+    SuppliersModule,
+    ItemsModule,
   ],
 })
 export class AppModule {}
